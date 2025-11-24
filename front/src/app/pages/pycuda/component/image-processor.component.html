@@ -1,0 +1,371 @@
+<!-- image-processor.component.html - PrimeNG/Sakai Version -->
+<p-toast/>
+<div class="grid">
+    <div class="col-12">
+        <div class="card">
+            <h5> Procesador de Imágenes con PyCUDA</h5>
+
+            <!-- Status Bar -->
+            <div class="flex justify-content-center mb-3">
+                <p-chip
+                    *ngIf="cudaAvailable"
+                    label=" CUDA Disponible"
+                    styleClass="mr-2"
+                    [style]="{'background-color': '#22c55e', 'color': 'white'}"
+                ></p-chip>
+                <p-chip
+                    *ngIf="!cudaAvailable"
+                    label=" CUDA No Disponible"
+                    [style]="{'background-color': '#f59e0b', 'color': 'white'}"
+                ></p-chip>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Sección de Upload y Configuración -->
+    <div class="col-12 lg:col-6">
+        <div class="card">
+            <h5>1. Seleccionar Imagen</h5>
+
+            <p-fileupload
+                mode="basic"
+                name="image"
+                accept="image/*"
+                [maxFileSize]="10000000"
+                [auto]="false"
+                chooseLabel="Seleccionar Imagen"
+                (onSelect)="onFileSelected($event)"
+                [disabled]="isProcessing"
+            ></p-fileupload>
+
+            <p-button
+                *ngIf="selectedFile"
+                label="Limpiar"
+                icon="pi pi-refresh"
+                styleClass="p-button-secondary mt-2"
+                (onClick)="reset()"
+                [disabled]="isProcessing"
+            ></p-button>
+
+            <!-- Preview Original -->
+            <div *ngIf="previewUrl" class="mt-4">
+                <h6>Imagen Original</h6>
+                <p-image
+                    [src]="previewUrl"
+                    alt="Preview"
+                    width="100%"
+                    [preview]="true"
+                ></p-image>
+                <p class="text-sm text-color-secondary mt-2">
+                    <i class="pi pi-file mr-1"></i>
+                    {{ selectedFile?.name }}
+                </p>
+            </div>
+        </div>
+
+        <!-- Configuración -->
+        <div *ngIf="selectedFile" class="card mt-3">
+            <h5>2. Configuración</h5>
+
+            <!-- Filtro -->
+            <div class="field">
+                <label for="filter">Filtro</label>
+                <p-select
+                    id="filter"
+                    [(ngModel)]="selectedFilter"
+                    [options]="filterOptions"
+                    optionLabel="label"
+                    optionValue="value"
+                    placeholder="Seleccionar Filtro"
+                    [style]="{'width': '100%'}"
+                ></p-select>
+            </div>
+
+            <!-- Kernel Size -->
+            <div class="field">
+                <label for="kernelSize">
+                    Kernel Size: {{ kernelSize }}x{{ kernelSize }}
+                </label>
+                <p-slider
+                    id="kernelSize"
+                    [(ngModel)]="kernelSize"
+                    [min]="3"
+                    [max]="101"
+                    [step]="2"
+                    (onChange)="validateKernelSize()"
+                ></p-slider>
+                <small class="text-color-secondary">
+                    Valores impares entre 3 y 101
+                </small>
+            </div>
+
+            <!-- Block Size -->
+            <div class="field">
+                <label for="blockSize">Block Size (GPU)</label>
+                <p-select
+                    id="blockSize"
+                    [(ngModel)]="blockSize"
+                    [options]="blockSizeOptions"
+                    optionLabel="label"
+                    optionValue="value"
+                    placeholder="Seleccionar Block Size"
+                    [style]="{'width': '100%'}"
+                ></p-select>
+            </div>
+        </div>
+
+        <!-- Botones de Acción -->
+        <div *ngIf="selectedFile" class="card mt-3">
+            <h5>3. Procesar</h5>
+
+            <div class="flex flex-wrap gap-2">
+                <p-button
+                    label="Procesar con GPU"
+                    icon="pi pi-bolt"
+                    [loading]="isProcessing"
+                    [disabled]="isProcessing || !cudaAvailable"
+                    (onClick)="processWithGPU()"
+                ></p-button>
+
+                <p-button
+                    label="Comparar CPU vs GPU"
+                    icon="pi pi-chart-bar"
+                    styleClass="p-button-warning"
+                    [loading]="isProcessing"
+                    [disabled]="isProcessing || !cudaAvailable"
+                    (onClick)="comparePerformance()"
+                ></p-button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sección de Resultados -->
+    <div class="col-12 lg:col-6">
+        <!-- Imagen Procesada -->
+        <div *ngIf="processedImageUrl" class="card">
+            <h5>4. Resultado</h5>
+
+            <p-tabs>
+                <p-tablist header="Resultado" leftIcon="pi pi-image">
+                    <p-image
+                        [src]="processedImageUrl"
+                        alt="Processed"
+                        width="100%"
+                        [preview]="true"
+                    ></p-image>
+
+                    <div *ngIf="processingTime" class="mt-3">
+                        <p-tag
+                            severity="info"
+                            [value]="' Tiempo: ' + processingTime?.toFixed(2) + ' ms'"
+                        ></p-tag>
+                    </div>
+
+                    <p-button
+                        label="Descargar"
+                        icon="pi pi-download"
+                        styleClass="p-button-success mt-3"
+                        (onClick)="downloadProcessedImage()"
+                    ></p-button>
+                </p-tablist>
+
+                <p-tablist header="Comparación" leftIcon="pi pi-clone">
+                    <div class="grid">
+                        <div class="col-6">
+                            <h6 class="text-center">Original</h6>
+                            <p-image
+                                [src]="previewUrl"
+                                alt="Original"
+                                width="100%"
+                                [preview]="true"
+                            ></p-image>
+                        </div>
+                        <div class="col-6">
+                            <h6 class="text-center">Procesada</h6>
+                            <p-image
+                                [src]="processedImageUrl"
+                                alt="Processed"
+                                width="100%"
+                                [preview]="true"
+                            ></p-image>
+                        </div>
+                    </div>
+                </p-tablist>
+            </p-tabs>
+        </div>
+
+        <!-- Resultados de Comparación -->
+        <div *ngIf="comparisonResult" class="card mt-3">
+            <h5>📊 Comparación CPU vs GPU</h5>
+
+            <div class="grid">
+                <!-- CPU Time -->
+                <div class="col-12 md:col-6">
+                    <div class="surface-card shadow-2 p-3 border-round">
+                        <div class="flex justify-content-between mb-3">
+                            <div>
+                                <span class="block text-500 font-medium mb-3">CPU</span>
+                                <div class="text-900 font-medium text-xl">
+                                    {{ comparisonResult?.cpu?.processing_time_ms?.toFixed(2) }} ms
+                                </div>
+                            </div>
+                            <div class="flex align-items-center justify-content-center bg-blue-100 border-round"
+                                 style="width:2.5rem;height:2.5rem">
+                                <i class="pi pi-desktop text-blue-500 text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GPU Time -->
+                <div class="col-12 md:col-6">
+                    <div class="surface-card shadow-2 p-3 border-round">
+                        <div class="flex justify-content-between mb-3">
+                            <div>
+                                <span class="block text-500 font-medium mb-3">GPU</span>
+                                <div class="text-900 font-medium text-xl">
+                                    {{ comparisonResult?.gpu?.processing_time_ms?.toFixed(2) }} ms
+                                </div>
+                            </div>
+                            <div class="flex align-items-center justify-content-center bg-green-100 border-round"
+                                 style="width:2.5rem;height:2.5rem">
+                                <i class="pi pi-bolt text-green-500 text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Speedup -->
+                <div class="col-12 md:col-6">
+                    <div class="surface-card shadow-2 p-3 border-round border-2 border-primary">
+                        <div class="flex justify-content-between mb-3">
+                            <div>
+                                <span class="block text-500 font-medium mb-3">Speedup</span>
+                                <div class="text-900 font-medium text-xl">
+                                    {{ comparisonResult?.speedup }}x más rápido
+                                </div>
+                            </div>
+                            <div class="flex align-items-center justify-content-center bg-orange-100 border-round"
+                                 style="width:2.5rem;height:2.5rem">
+                                <i class="pi pi-chart-line text-orange-500 text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Performance Gain -->
+                <div class="col-12 md:col-6">
+                    <div class="surface-card shadow-2 p-3 border-round border-2 border-primary">
+                        <div class="flex justify-content-between mb-3">
+                            <div>
+                                <span class="block text-500 font-medium mb-3">Mejora</span>
+                                <div class="text-900 font-medium text-xl">
+                                    {{ comparisonResult?.performance_gain }}
+                                </div>
+                            </div>
+                            <div class="flex align-items-center justify-content-center bg-purple-100 border-round"
+                                 style="width:2.5rem;height:2.5rem">
+                                <i class="pi pi-percentage text-purple-500 text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detalles -->
+            <p-panel header="Detalles de Configuración" [toggleable]="true" [collapsed]="true" styleClass="mt-3">
+                <div class="grid">
+                    <div class="col-12">
+                        <ul class="list-none p-0 m-0">
+                            <li class="flex align-items-center py-2 border-bottom-1 surface-border">
+                                <div class="w-6 text-500 font-medium">Imagen</div>
+                                <div class="w-6 text-900">
+                                    {{ comparisonResult?.image_size?.width }}x{{ comparisonResult?.image_size?.height }} pixels
+                                </div>
+                            </li>
+                            <li class="flex align-items-center py-2 border-bottom-1 surface-border">
+                                <div class="w-6 text-500 font-medium">Kernel</div>
+                                <div class="w-6 text-900">
+                                    {{ comparisonResult?.kernel_size }}x{{ comparisonResult?.kernel_size }}
+                                </div>
+                            </li>
+                            <li class="flex align-items-center py-2">
+                                <div class="w-6 text-500 font-medium">GPU Config</div>
+                                <div class="w-6 text-900">
+                                    Bloques {{ comparisonResult?.gpu?.block_config }}, Grid {{ comparisonResult?.gpu?.grid_config }}
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </p-panel>
+        </div>
+    </div>
+
+    <!-- Panel de Información -->
+    <div class="col-12">
+        <p-panel header=" Información de Filtros" [toggleable]="true" [collapsed]="true">
+            <div class="grid">
+                <div class="col-12 md:col-4">
+                    <div class="p-3 surface-card border-round">
+                        <div class="text-900 font-medium text-xl mb-2">
+                            <i class="pi pi-image mr-2 text-primary"></i>Emboss
+                        </div>
+                        <p class="mt-0 mb-3 text-600 line-height-3">
+                            Crea efecto 3D tipo relieve en la imagen
+                        </p>
+                        <p-tag severity="success" value="Implementado"></p-tag>
+                    </div>
+                </div>
+
+                <div class="col-12 md:col-4">
+                    <div class="p-3 surface-card border-round">
+                        <div class="text-900 font-medium text-xl mb-2">
+                            <i class="pi pi-circle mr-2 text-primary"></i>Blur
+                        </div>
+                        <p class="mt-0 mb-3 text-600 line-height-3">
+                            Aplica desenfoque gaussiano a la imagen
+                        </p>
+                        <p-tag severity="warning" value="Pendiente"></p-tag>
+                    </div>
+                </div>
+
+                <div class="col-12 md:col-4">
+                    <div class="p-3 surface-card border-round">
+                        <div class="text-900 font-medium text-xl mb-2">
+                            <i class="pi pi-box mr-2 text-primary"></i>Laplace
+                        </div>
+                        <p class="mt-0 mb-3 text-600 line-height-3">
+                            Detecta bordes usando el operador Laplaciano
+                        </p>
+                        <p-tag severity="warning" value="Pendiente"></p-tag>
+                    </div>
+                </div>
+            </div>
+
+            <p-divider></p-divider>
+
+            <div class="grid">
+                <div class="col-12 md:col-6">
+                    <h6> Kernel Size</h6>
+                    <p class="text-600 line-height-3">
+                        Tamaño de la máscara de convolución. Mayor tamaño = efecto más pronunciado.
+                        Valores impares entre 3 y 101.
+                    </p>
+                </div>
+                <div class="col-12 md:col-6">
+                    <h6> Block Size</h6>
+                    <p class="text-600 line-height-3">
+                        Configuración de threads CUDA por bloque. 16x16 es óptimo para la mayoría de imágenes HD.
+                    </p>
+                </div>
+            </div>
+        </p-panel>
+    </div>
+</div>
+
+<!-- Loading Overlay -->
+<p-blockUI [blocked]="isProcessing">
+    <i class="pi pi-spin pi-spinner" style="font-size: 3rem"></i>
+</p-blockUI>
