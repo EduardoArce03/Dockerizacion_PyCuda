@@ -28,12 +28,12 @@ export class AppMenu {
             {
                 label: 'PyCuda',
                 icon: 'pi pi-fw pi-briefcase',
-                routerLink: ['/pages'],
+                routerLink: [''],
                 items: [
                     {
                         label: 'Subir Imagen',
                         icon: 'pi pi-fw pi-globe',
-                        routerLink: ['/pycuda']
+                        routerLink: ['/pages/pycuda']
                     },
                 ]
             }
