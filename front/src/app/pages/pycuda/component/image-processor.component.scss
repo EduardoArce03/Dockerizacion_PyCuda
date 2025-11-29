@@ -332,3 +332,9 @@ $text-color-secondary: var(--text-color-secondary);
         background: #F3E5F5;
     }
 }
+
+.filter-img {
+    width: 20%;
+    height: 20%;
+    object-fit: contain;
+}   

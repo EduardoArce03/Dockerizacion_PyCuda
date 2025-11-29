@@ -70,6 +70,10 @@ export class ImageProcessorComponent implements OnInit {
     processedImageUrl: string = '';
     isProcessing = false;
     cudaAvailable = false;
+    //Rutas de imagenes
+    imgEmboss = '/imagenes/imgEmboss.png';
+    imgBlur = '/imagenes/imgBlur.png';
+    imgLaplace = '/imagenes/imgLaplace.jpg';
 
     filterOptions: FilterOption[] = [
         { label: ' Emboss (Relieve 3D)', value: 'emboss', icon: 'pi-image' },
@@ -179,7 +183,7 @@ export class ImageProcessorComponent implements OnInit {
         this.isProcessing = true;
 
         const options: ProcessOptions = {
-            filter: this.selectedFilter,
+            filter: this.selectedFilter,            
             kernel_size: this.kernelSize,
             return_base64: true
         };
@@ -232,7 +236,7 @@ export class ImageProcessorComponent implements OnInit {
             link.href = this.processedImageUrl;
             link.download = `${this.selectedFilter}_${this.selectedFile.name}`;
             link.click();
-            this.showSuccess(' Imagen descargada');
+            this.showSuccess('Imagen descargada');
             return;
         }
 

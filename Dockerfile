@@ -4,10 +4,10 @@ LABEL authors="eduardo"
 
 RUN apt-get -qq update && \
     apt-get -qq install -y build-essential python3-pip && \
-    pip3 install pycuda flask numpy
+    pip3 install pycuda flask flask_cors numpy pillow werkzeug
 
 COPY . /app
 WORKDIR /app
 EXPOSE 5000
 
-CMD ["python3", "./app.py"]
+CMD ["python3", "./app_production.py"]
