@@ -37,6 +37,12 @@ interface BlockSizeOption {
     description: string;
 }
 
+interface DefaultImage {
+  name: string;
+  url: string;
+  file: File | null;
+}
+
 @Component({
     selector: 'app-image-processor',
     templateUrl: './image-processor.component.html',
@@ -65,6 +71,40 @@ interface BlockSizeOption {
     ]
 })
 export class ImageProcessorComponent implements OnInit {
+
+    defaultImages: DefaultImage[] = [
+        {
+            name: 'Paisaje Montaña',
+            url: 'https://images.pexels.com/photos/34191214/pexels-photo-34191214.jpeg',
+            file: null
+        },
+        {
+            name: 'Ciudad Nocturna',
+            url: 'https://images.pexels.com/photos/1123972/pexels-photo-1123972.jpeg',
+            file: null
+        },
+        {
+            name: 'Naturaleza',
+            url: 'https://images.pexels.com/photos/158063/bellingrath-gardens-alabama-landscape-scenic-158063.jpeg',
+            file: null
+        },
+        {
+            name: 'Persona',
+            url: 'https://images.pexels.com/photos/516927/pexels-photo-516927.jpeg',
+            file: null
+        },
+        {
+            name: 'Arquitectura',
+            url: 'https://images.pexels.com/photos/135018/pexels-photo-135018.jpeg',
+            file: null
+        },
+        {
+            name: 'Abstract',
+            url: 'https://images.pexels.com/photos/28359694/pexels-photo-28359694.jpeg',
+            file: null
+        }
+    ];
+
     selectedFile: File | null = null;
     previewUrl: string = '';
     processedImageUrl: string = '';
@@ -122,6 +162,38 @@ export class ImageProcessorComponent implements OnInit {
         });
     }
 
+    async selectDefaultImage(defaultImg: DefaultImage) {
+        try {
+        const response = await fetch(defaultImg.url);
+        const blob = await response.blob();
+        
+        const file = new File([blob], defaultImg.name + '.jpg', { type: 'image/jpeg' });
+        
+        this.selectedFile = file;
+        
+        const reader = new FileReader();
+        reader.onload = (e: any) => {
+            this.previewUrl = e.target.result;
+        };
+        reader.readAsDataURL(file);
+        
+        this.processedImageUrl = '';
+        this.comparisonResult = null;
+        
+        this.messageService.add({
+            severity: 'success',
+            summary: 'Imagen Seleccionada',
+            detail: `${defaultImg.name} cargada correctamente`
+                });
+        } catch (error) {
+        this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: 'No se pudo cargar la imagen predeterminada'
+        });
+        console.error('Error al cargar imagen predeterminada:', error);
+        }
+    } 
 
     onFileSelected(event: any): void {
         const file = event.files[0];
