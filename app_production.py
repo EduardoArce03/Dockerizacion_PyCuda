@@ -13,17 +13,14 @@ print("="*70)
 print(" Inicializando CUDA...")
 print("="*70)
 
+# === CUDA / PyCUDA ===
+import pycuda.autoinit              # <- crea y mantiene un contexto global
 import pycuda.driver as cuda
-import pycuda.tools
 
 cuda.init()
-
 device = cuda.Device(0)
 print(f"✅ Dispositivo: {device.name()}")
 print(f"   Compute Capability: {device.compute_capability()}")
-
-ctx = pycuda.tools.make_default_context()
-print(f"✅ Contexto CUDA creado (auto-managed)")
 
 free_mem, total_mem = cuda.mem_get_info()
 print(f" Memoria libre: {free_mem / (1024**3):.2f} GB")
@@ -43,7 +40,7 @@ for filter_info in FilterFactory.get_available_filters():
         print(f"     {filter_name}: {str(e)[:80]}")
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": ["http://localhost:4200", "http://127.0.0.1:4200", "*"]}})
 
 UPLOAD_FOLDER = 'uploads'
 OUTPUT_FOLDER = 'outputs'
@@ -57,41 +54,50 @@ print(f"✅ Filtros cargados: {len(available_filters)}")
 for f in available_filters:
     print(f"   • {f['name']}: {f['description']}")
 
-# Cleanup
-import atexit
-def cleanup():
-    print("\n🧹 Cerrando contexto CUDA...")
-    try:
-        ctx.detach()
-        print("✅ Contexto cerrado correctamente")
-    except:
-        pass
-
-atexit.register(cleanup)
-
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
 def load_image_grayscale(image_data):
+    """Carga imagen en escala de grises (H, W) float32."""
     img = Image.open(io.BytesIO(image_data)).convert('L')
     img_array = np.array(img, dtype=np.float32)
     return img_array, img.size
 
 
+def load_image_color(image_data):
+    """Carga imagen en RGB (H, W, 3) float32."""
+    img = Image.open(io.BytesIO(image_data)).convert('RGB')
+    img_array = np.array(img, dtype=np.float32)  # (H, W, 3)
+    return img_array, img.size
+
+
 def array_to_image_bytes(img_array, format='PNG'):
-    img_array = np.clip(img_array, 0, 255)
-    img = Image.fromarray(img_array.astype(np.uint8))
+    """
+    Convierte un np.array a bytes de imagen.
+
+    Soporta:
+      - (H, W)        -> L (grises)
+      - (H, W, 3)     -> RGB
+      - (H, W, 1)     -> se aplasta a (H, W)
+    """
+    arr = np.clip(img_array, 0, 255).astype(np.uint8)
+
+    # Si viene con canal único explícito, aplastarlo
+    if arr.ndim == 3 and arr.shape[2] == 1:
+        arr = arr[:, :, 0]
+
+    img = Image.fromarray(arr)
     buffer = io.BytesIO()
     img.save(buffer, format=format)
     buffer.seek(0)
     return buffer
 
 
-
 @app.route('/')
 def index():
+    # Ojo: usamos free_mem/total_mem que se calcularon al inicio.
     return jsonify({
         "message": "🎨 Image Convolution Filter API with PyCUDA",
         "version": "2.0.0",
@@ -114,8 +120,6 @@ def index():
 
 @app.route('/health', methods=['GET'])
 def health():
-    ctx.push()
-
     try:
         fm, tm = cuda.mem_get_info()
         return jsonify({
@@ -131,8 +135,6 @@ def health():
             "cuda_available": False,
             "error": str(e)
         }), 500
-    finally:
-        ctx.pop()
 
 
 @app.route('/filters', methods=['GET'])
@@ -146,8 +148,6 @@ def list_filters():
 
 @app.route('/process/gpu', methods=['POST'])
 def process_gpu():
-    ctx.push()
-
     try:
         if 'image' not in request.files:
             return jsonify({"error": "No image file provided"}), 400
@@ -171,21 +171,43 @@ def process_gpu():
 
         filter_instance = filter_instances[filter_name]
 
-        kernel_size = int(request.form.get('kernel_size',
-                          filter_instance.get_parameters()['kernel_size']['default']))
+        kernel_size = int(request.form.get(
+            'kernel_size',
+            filter_instance.get_parameters()['kernel_size']['default']
+        ))
         block_size = int(request.form.get('block_size', 16))
         return_base64 = request.form.get('return_base64', 'false').lower() == 'true'
 
         image_data = file.read()
-        image, _ = load_image_grayscale(image_data)
-        H, W = image.shape
+
+        # Cargamos SIEMPRE en color, y luego decidimos según el filtro
+        color_image, _ = load_image_color(image_data)  # (H, W, 3)
+
+        if getattr(filter_instance, "supports_color", False):
+            # Filtro soporta RGB (ej: blur)
+            image = color_image
+        else:
+            # Filtro trabaja en escala de grises (emboss, laplace, etc.)
+            image = np.dot(color_image[..., :3], [0.299, 0.587, 0.114]).astype(np.float32)
+
+        # Dimensiones
+        if image.ndim == 2:
+            H, W = image.shape
+        else:
+            H, W, _ = image.shape
 
         kernel = filter_instance.generate_kernel(kernel_size)
 
         block_config = (block_size, block_size, 1)
-        grid_config = ((W + block_size - 1) // block_size, (H + block_size - 1) // block_size, 1)
+        grid_config = (
+            (W + block_size - 1) // block_size,
+            (H + block_size - 1) // block_size,
+            1
+        )
 
-        output, gpu_time = filter_instance.process_gpu(image, kernel, block_config, grid_config)
+        output, gpu_time = filter_instance.process_gpu(
+            image, kernel, block_config, grid_config
+        )
 
         result = {
             "success": True,
@@ -217,14 +239,10 @@ def process_gpu():
             "error": str(e),
             "traceback": traceback.format_exc()
         }), 500
-    finally:
-        ctx.pop()
 
 
 @app.route('/process/compare', methods=['POST'])
 def process_compare():
-    ctx.push()
-
     try:
         if 'image' not in request.files:
             return jsonify({"error": "No image file provided"}), 400
@@ -242,19 +260,37 @@ def process_compare():
             }), 400
 
         filter_instance = filter_instances[filter_name]
-        kernel_size = int(request.form.get('kernel_size',
-                          filter_instance.get_parameters()['kernel_size']['default']))
+        kernel_size = int(request.form.get(
+            'kernel_size',
+            filter_instance.get_parameters()['kernel_size']['default']
+        ))
 
         image_data = file.read()
-        image, _ = load_image_grayscale(image_data)
-        H, W = image.shape
+
+        # Igual que en /process/gpu
+        color_image, _ = load_image_color(image_data)
+
+        if getattr(filter_instance, "supports_color", False):
+            image = color_image
+        else:
+            image = np.dot(color_image[..., :3], [0.299, 0.587, 0.114]).astype(np.float32)
+
+        if image.ndim == 2:
+            H, W = image.shape
+        else:
+            H, W, _ = image.shape
 
         kernel = filter_instance.generate_kernel(kernel_size)
+
+        # CPU
+        output_cpu, cpu_time = filter_instance.process_cpu(image, kernel)
 
         # GPU
         block_config = (16, 16, 1)
         grid_config = ((W + 15) // 16, (H + 15) // 16, 1)
-        output_gpu, gpu_time = filter_instance.process_gpu(image, kernel, block_config, grid_config)
+        output_gpu, gpu_time = filter_instance.process_gpu(
+            image, kernel, block_config, grid_config
+        )
 
         speedup = cpu_time / gpu_time if gpu_time > 0 else 0
 
@@ -278,13 +314,10 @@ def process_compare():
             "error": str(e),
             "traceback": traceback.format_exc()
         }), 500
-    finally:
-        ctx.pop()
 
 
 if __name__ == '__main__':
     print("\n" + "="*70)
     print("INICIANDO SERVIDOR")
-
-    # Sin reloader para evitar problemas con CUDA
-    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+    # Sin reloader ni threading para llevarnos bien con CUDA
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=False, use_reloader=False)
