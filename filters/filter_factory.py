@@ -3,12 +3,14 @@
 from filters.emboss_filter import EmbossFilter
 from filters.blur_filter import BlurFilter
 from filters.laplace_filter import LaplaceFilter
+from filters.gaussiano_filter import gaussianoFilter
 
 
 class FilterFactory:
 
     
     AVAILABLE_FILTERS = {
+        'gaussiano': gaussianoFilter,
         'emboss': EmbossFilter,
         'blur': BlurFilter,
         'laplace': LaplaceFilter,
