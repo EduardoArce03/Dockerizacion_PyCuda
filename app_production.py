@@ -20,7 +20,7 @@ cuda.init()
 
 device = cuda.Device(0)
 print(f"✅ Dispositivo: {device.name()}")
-print(f"   Compute Capability: {device.compute_capability()}")
+print(f"   Compute Capability: {device.compute_capability()}")
 
 ctx = pycuda.tools.make_default_context()
 print(f"✅ Contexto CUDA creado (auto-managed)")
@@ -37,10 +37,12 @@ filter_instances = {}
 for filter_info in FilterFactory.get_available_filters():
     filter_name = filter_info['name']
     try:
+        # Crea la instancia y la guarda solo si la inicialización (compilación CUDA) fue exitosa
         filter_instances[filter_name] = FilterFactory.create_filter(filter_name)
-        print(f"   {filter_name}: Pre-compilado")
+        print(f"   {filter_name}: Pre-compilado")
     except Exception as e:
-        print(f"     {filter_name}: {str(e)[:80]}")
+        print(f"   ❌ {filter_name}: Error al compilar/cargar: {str(e)[:80]}")
+
 
 app = Flask(__name__)
 CORS(app)
@@ -52,10 +54,15 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp'}
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-available_filters = FilterFactory.get_available_filters()
+# Lista de filtros cargados exitosamente para la API
+available_filters = [
+    f for f in FilterFactory.get_available_filters() 
+    if f['name'] in filter_instances
+]
 print(f"✅ Filtros cargados: {len(available_filters)}")
 for f in available_filters:
-    print(f"   • {f['name']}: {f['description']}")
+    print(f"   • {f['name']}: {f['description']}")
+
 
 # Cleanup
 import atexit
@@ -74,20 +81,45 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+# --- FUNCIONES DE CARGA MODIFICADAS ---
+
 def load_image_grayscale(image_data):
+    """Carga la imagen en escala de grises (L) y la convierte a float32 (para convolución)."""
     img = Image.open(io.BytesIO(image_data)).convert('L')
     img_array = np.array(img, dtype=np.float32)
     return img_array, img.size
 
 
+def load_image_color(image_data):
+    """Carga la imagen en color (RGB) y la convierte a np.uint8 (para StickerFilter y Duotono)."""
+    img = Image.open(io.BytesIO(image_data)).convert('RGB')
+    img_array = np.array(img, dtype=np.uint8) 
+    return img_array, img.size
+
+
 def array_to_image_bytes(img_array, format='PNG'):
+    """Convierte el array numpy (L, RGB o RGBA) a bytes de imagen."""
     img_array = np.clip(img_array, 0, 255)
-    img = Image.fromarray(img_array.astype(np.uint8))
+    
+    # Determinar el modo (L, RGB, RGBA)
+    if len(img_array.shape) == 3:
+        if img_array.shape[2] == 4:
+            mode = 'RGBA'
+        elif img_array.shape[2] == 3:
+            mode = 'RGB'
+        else:
+            mode = 'L'
+    else:
+        mode = 'L'
+        
+    img = Image.fromarray(img_array.astype(np.uint8), mode=mode)
+    
     buffer = io.BytesIO()
     img.save(buffer, format=format)
     buffer.seek(0)
     return buffer
 
+# --- FIN DE FUNCIONES DE CARGA MODIFICADAS ---
 
 
 @app.route('/')
@@ -96,18 +128,6 @@ def index():
         "message": "🎨 Image Convolution Filter API with PyCUDA",
         "version": "2.0.0",
         "mode": "Production (no auto-reload)",
-        "endpoints": {
-            "/health": "GET - Health check",
-            "/filters": "GET - List filters",
-            "/process/cpu": "POST - Process with CPU",
-            "/process/gpu": "POST - Process with GPU",
-            "/process/compare": "POST - Compare CPU vs GPU",
-            "/process/benchmark": "POST - Benchmark"
-        },
-        "gpu_info": {
-            "free_memory": free_mem,
-            "total_memory": total_mem
-        },
         "available_filters": [f["name"] for f in available_filters]
     })
 
@@ -115,7 +135,6 @@ def index():
 @app.route('/health', methods=['GET'])
 def health():
     ctx.push()
-
     try:
         fm, tm = cuda.mem_get_info()
         return jsonify({
@@ -144,6 +163,7 @@ def list_filters():
     })
 
 
+
 @app.route('/process/gpu', methods=['POST'])
 def process_gpu():
     ctx.push()
@@ -151,17 +171,15 @@ def process_gpu():
     try:
         if 'image' not in request.files:
             return jsonify({"error": "No image file provided"}), 400
-
-        file = request.files['image']
+        
+        file = request.files['image'] 
+        
         if file.filename == '' or not allowed_file(file.filename):
             return jsonify({"error": "Invalid file"}), 400
 
         filter_name = request.form.get('filter', '').lower()
         if not filter_name:
-            return jsonify({
-                "error": "Filter parameter is required",
-                "available_filters": list(filter_instances.keys())
-            }), 400
+            return jsonify({"error": "Filter parameter is required"}), 400
 
         if filter_name not in filter_instances:
             return jsonify({
@@ -170,33 +188,91 @@ def process_gpu():
             }), 400
 
         filter_instance = filter_instances[filter_name]
-
-        kernel_size = int(request.form.get('kernel_size',
-                          filter_instance.get_parameters()['kernel_size']['default']))
-        block_size = int(request.form.get('block_size', 16))
-        return_base64 = request.form.get('return_base64', 'false').lower() == 'true'
-
+        
+        
         image_data = file.read()
-        image, _ = load_image_grayscale(image_data)
-        H, W = image.shape
+        
+        if filter_name in ['sticker_overlay', 'sticker', 'depth_of_field', 'depth_of_field_duotone']:
+            image, _ = load_image_color(image_data)
+        else:
+            image, _ = load_image_grayscale(image_data)
+        
+        # 3. Determinar W, H
+        if len(image.shape) == 3:
+            H, W, C = image.shape
+        else:
+            H, W = image.shape
+            C = 1
 
+        # 4. Obtener kernel_size (Seguro)
+        kernel_size = int(request.form.get('kernel_size',
+                                     filter_instance.get_parameters()['kernel_size']['default']))
+        
+        # 5. Generar kernel (Dummy para StickerFilter, Real para Convolución/Duotono)
         kernel = filter_instance.generate_kernel(kernel_size)
-
+        
+        # 6. Configurar el Grid/Block
+        block_size = int(request.form.get('block_size', 16))
         block_config = (block_size, block_size, 1)
-        grid_config = ((W + block_size - 1) // block_size, (H + block_size - 1) // block_size, 1)
 
-        output, gpu_time = filter_instance.process_gpu(image, kernel, block_config, grid_config)
+        # Determinar Grid basado en el tipo de filtro
+        if filter_name in ['sticker_overlay', 'sticker', 'depth_of_field', 'depth_of_field_duotone']:
+             grid_config = ((W + block_size - 1) // block_size, (H + block_size - 1) // block_size)
+        else:
+             threads_per_block = block_config[0] * block_config[1]
+             total_pixels = H * W
+             num_blocks = (total_pixels + threads_per_block - 1) // threads_per_block
+             grid_config = (num_blocks, 1) 
 
+        # 7. Preparar argumentos para process_gpu
+        process_gpu_args = {
+            'image': image, 
+            'kernel': kernel, 
+            'block_config': block_config, 
+            'grid_config': grid_config
+        }
+        
+        # --- AÑADIR ARGUMENTOS ESPECÍFICOS ---
+        if filter_name in ['sticker_overlay', 'sticker']:
+            
+            # Sticker Principal Path
+            sticker_path_default = filter_instance.get_parameters()['sticker_img_path']['default']
+            sticker_path = request.form.get('sticker_img_path', sticker_path_default)
+            process_gpu_args['sticker_img_path'] = sticker_path
+            
+            # Footer Sticker Path
+            footer_path_default = filter_instance.get_parameters()['footer_img_path']['default']
+            footer_path = request.form.get('footer_img_path', footer_path_default)
+            process_gpu_args['footer_img_path'] = footer_path
+
+        if filter_name in ['depth_of_field', 'depth_of_field_duotone']:
+            # Añadir coordenadas de ROI (Región de Interés)
+            
+            # Nota: Si el usuario no envía valores, usamos el default (que es 0)
+            # El filtro se encarga de calcular el 50% central si todos son 0.
+            roi_x_start = int(request.form.get('roi_x_start', filter_instance.get_parameters()['roi_x_start']['default']))
+            roi_y_start = int(request.form.get('roi_y_start', filter_instance.get_parameters()['roi_y_start']['default']))
+            roi_x_end = int(request.form.get('roi_x_end', filter_instance.get_parameters()['roi_x_end']['default']))
+            roi_y_end = int(request.form.get('roi_y_end', filter_instance.get_parameters()['roi_y_end']['default']))
+            
+            process_gpu_args['roi_coords'] = (roi_x_start, roi_y_start, roi_x_end, roi_y_end)
+
+
+        
+        # Llamada al proceso 
+        output, gpu_time = filter_instance.process_gpu(**process_gpu_args)
+
+        
         result = {
             "success": True,
             "processor": "GPU",
             "filter": filter_name,
-            "image_size": {"width": W, "height": H},
+            "image_size": {"width": W, "height": H, "channels": output.shape[-1] if len(output.shape)>2 else 1},
             "kernel_size": kernel_size,
-            "block_config": {"x": block_size, "y": block_size},
-            "grid_config": {"x": grid_config[0], "y": grid_config[1]},
             "processing_time_ms": round(gpu_time, 3)
         }
+        
+        return_base64 = request.form.get('return_base64', 'false').lower() == 'true'
 
         if return_base64:
             img_buffer = array_to_image_bytes(output)
@@ -224,60 +300,9 @@ def process_gpu():
 @app.route('/process/compare', methods=['POST'])
 def process_compare():
     ctx.push()
-
     try:
-        if 'image' not in request.files:
-            return jsonify({"error": "No image file provided"}), 400
-
-        file = request.files['image']
-        filter_name = request.form.get('filter', '').lower()
-
-        if not filter_name:
-            return jsonify({"error": "Filter parameter required"}), 400
-
-        if filter_name not in filter_instances:
-            return jsonify({
-                "error": f"Filter '{filter_name}' not found",
-                "available_filters": list(filter_instances.keys())
-            }), 400
-
-        filter_instance = filter_instances[filter_name]
-        kernel_size = int(request.form.get('kernel_size',
-                          filter_instance.get_parameters()['kernel_size']['default']))
-
-        image_data = file.read()
-        image, _ = load_image_grayscale(image_data)
-        H, W = image.shape
-
-        kernel = filter_instance.generate_kernel(kernel_size)
-
-        # GPU
-        block_config = (16, 16, 1)
-        grid_config = ((W + 15) // 16, (H + 15) // 16, 1)
-        output_gpu, gpu_time = filter_instance.process_gpu(image, kernel, block_config, grid_config)
-
-        speedup = cpu_time / gpu_time if gpu_time > 0 else 0
-
-        return jsonify({
-            "success": True,
-            "filter": filter_name,
-            "image_size": {"width": W, "height": H},
-            "kernel_size": kernel_size,
-            "cpu": {"processing_time_ms": round(cpu_time, 3)},
-            "gpu": {
-                "processing_time_ms": round(gpu_time, 3),
-                "block_config": "16x16",
-                "grid_config": f"{grid_config[0]}x{grid_config[1]}"
-            },
-            "speedup": round(speedup, 2),
-            "performance_gain": f"{((speedup - 1) * 100):.1f}%" if speedup > 1 else "0%"
-        })
-
-    except Exception as e:
-        return jsonify({
-            "error": str(e),
-            "traceback": traceback.format_exc()
-        }), 500
+        # Nota: Esta ruta necesitaría la misma lógica condicional de carga de imagen para ser completa.
+        return jsonify({"error": "La ruta /compare no está totalmente implementada para filtros de color/ROI."}), 501
     finally:
         ctx.pop()
 
@@ -285,6 +310,4 @@ def process_compare():
 if __name__ == '__main__':
     print("\n" + "="*70)
     print("INICIANDO SERVIDOR")
-
-    # Sin reloader para evitar problemas con CUDA
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)

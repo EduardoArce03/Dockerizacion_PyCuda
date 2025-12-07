@@ -76,7 +76,7 @@ export interface CompareResponse {
 }
 
 export interface ProcessOptions {
-    filter: 'emboss' | 'blur' | 'laplace';
+    filter: 'emboss' | 'blur' | 'laplace' | 'gaussian' | 'sticker' | 'depth_of_field_duotone';
     kernel_size?: number;
     block_size?: 8 | 16 | 32;
     return_base64?: boolean;
@@ -174,7 +174,7 @@ export class PyCudaService {
      */
     compare(
         imageFile: File,
-        filter: 'emboss' | 'blur' | 'laplace',
+        filter: 'emboss' | 'blur' | 'laplace' | 'gaussian' | 'sticker' | 'depth_of_field_duotone',
         kernelSize?: number
     ): Observable<CompareResponse> {
         const formData = new FormData();

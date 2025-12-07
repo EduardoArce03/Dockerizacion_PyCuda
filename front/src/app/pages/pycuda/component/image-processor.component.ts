@@ -27,7 +27,7 @@ import {
 
 interface FilterOption {
     label: string;
-    value: 'emboss' | 'blur' | 'laplace';
+    value: 'emboss' | 'blur' | 'laplace' | 'gaussian' | 'sticker' | 'depth_of_field_duotone';
     icon: string;
 }
 
@@ -118,7 +118,10 @@ export class ImageProcessorComponent implements OnInit {
     filterOptions: FilterOption[] = [
         { label: ' Emboss (Relieve 3D)', value: 'emboss', icon: 'pi-image' },
         { label: ' Blur (Desenfoque)', value: 'blur', icon: 'pi-circle' },
-        { label: ' Laplace (Bordes)', value: 'laplace', icon: 'pi-box' }
+        { label: ' Laplace (Bordes)', value: 'laplace', icon: 'pi-box' },
+        { label: ' Gaussian (Suavizado)', value: 'gaussian', icon: 'pi-star' },
+        { label: ' Sticker (Superposición)', value: 'sticker', icon: 'pi-image' },
+        { label: ' Extra (Profundidad de Campo)', value: 'depth_of_field_duotone', icon: 'pi-image' }
     ];
 
     blockSizeOptions: BlockSizeOption[] = [
@@ -128,7 +131,7 @@ export class ImageProcessorComponent implements OnInit {
     ];
 
     // Configuración
-    selectedFilter: 'emboss' | 'blur' | 'laplace' = 'emboss';
+    selectedFilter: 'emboss' | 'blur' | 'laplace' | 'gaussian' | 'sticker' | 'depth_of_field_duotone' = 'emboss';
     kernelSize = 21;
     blockSize: 8 | 16 | 32 = 16;
 

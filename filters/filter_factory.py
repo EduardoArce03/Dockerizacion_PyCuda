@@ -1,17 +1,19 @@
-
-
 from filters.emboss_filter import EmbossFilter
 from filters.blur_filter import BlurFilter
 from filters.laplace_filter import LaplaceFilter
-
+from filters.sticker_filter import StickerFilter
+from .gaussian_filter import GaussianFilter
+from .extra_filter import DepthOfFieldFilter
 
 class FilterFactory:
 
-    
     AVAILABLE_FILTERS = {
         'emboss': EmbossFilter,
         'blur': BlurFilter,
         'laplace': LaplaceFilter,
+        "gaussian": GaussianFilter,
+        "sticker": StickerFilter,
+        "depth_of_field_duotone": DepthOfFieldFilter,
     }
     
     @classmethod
