@@ -237,8 +237,6 @@ export class ImageProcessorComponent implements OnInit {
             next: (response) => {
                 const result = response as ProcessGPUResponse;
                 this.processedImageUrl = this.pycudaService.base64ToImageUrl(result.image_base64!);
-                this.processingTime = result.processing_time_ms;
-                this.showSuccess(` Procesado con GPU en ${result.processing_time_ms.toFixed(2)} ms`);
                 this.isProcessing = false;
             },
             error: (error: any) => {
@@ -249,57 +247,6 @@ export class ImageProcessorComponent implements OnInit {
         });
     }
 
-    processWithCPU(): void {
-        if (!this.selectedFile) {
-            this.showWarn('Selecciona una imagen primero');
-            return;
-        }
-
-        this.isProcessing = true;
-
-        const options: ProcessOptions = {
-            filter: this.selectedFilter,            
-            kernel_size: this.kernelSize,
-            return_base64: true
-        };
-
-        this.pycudaService.processCPU(this.selectedFile, options).subscribe({
-            next: (response) => {
-                const result = response as ProcessGPUResponse;
-                this.processedImageUrl = this.pycudaService.base64ToImageUrl(result.image_base64!);
-                this.processingTime = result.processing_time_ms;
-                this.showInfo(` Procesado con CPU en ${result.processing_time_ms.toFixed(2)} ms`);
-                this.isProcessing = false;
-            },
-            error: (error: any) => {
-                this.showError(` Error: ${error.error?.error || error.message}`);
-                this.isProcessing = false;
-                console.error(error);
-            }
-        });
-    }
-
-    comparePerformance(): void {
-        if (!this.selectedFile) {
-            this.showWarn('Selecciona una imagen primero');
-            return;
-        }
-
-        this.isProcessing = true;
-
-        this.pycudaService.compare(this.selectedFile, this.selectedFilter, this.kernelSize).subscribe({
-            next: (response) => {
-                this.comparisonResult = response;
-                this.showSuccess(` GPU es ${response.speedup}x más rápido que CPU!`);
-                this.isProcessing = false;
-            },
-            error: (error) => {
-                this.showError(` Error en comparación: ${error.error?.error || error.message}`);
-                this.isProcessing = false;
-                console.error(error);
-            }
-        });
-    }
 
     downloadProcessedImage(): void {
         if (!this.selectedFile || !this.processedImageUrl) {

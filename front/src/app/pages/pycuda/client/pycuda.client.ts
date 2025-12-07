@@ -35,24 +35,7 @@ export interface FiltersResponse {
 }
 
 export interface ProcessGPUResponse {
-    success: boolean;
-    processor: string;
-    filter: string;
-    image_size: {
-        width: number;
-        height: number;
-    };
-    kernel_size: number;
-    block_config: {
-        x: number;
-        y: number;
-    };
-    grid_config: {
-        x: number;
-        y: number;
-    };
-    processing_time_ms: number;
-    image_base64?: string; // Solo si return_base64=true
+    image_base64?: string;
 }
 
 export interface CompareResponse {
@@ -140,53 +123,7 @@ export class PyCudaService {
         }
     }
 
-    /**
-     * Procesa imagen con CPU
-     * @param imageFile - Archivo de imagen
-     * @param options - Opciones de procesamiento
-     */
-    processCPU(imageFile: File, options: ProcessOptions): Observable<ProcessGPUResponse | Blob> {
-        const formData = new FormData();
-        formData.append('image', imageFile);
-        formData.append('filter', options.filter);
-
-        if (options.kernel_size) {
-            formData.append('kernel_size', options.kernel_size.toString());
-        }
-
-        const returnBase64 = options.return_base64 !== false;
-        formData.append('return_base64', returnBase64.toString());
-
-        if (returnBase64) {
-            return this.http.post<ProcessGPUResponse>(`${this.apiUrl}/process/cpu`, formData);
-        } else {
-            return this.http.post(`${this.apiUrl}/process/cpu`, formData, {
-                responseType: 'blob'
-            });
-        }
-    }
-
-    /**
-     * Compara rendimiento CPU vs GPU
-     * @param imageFile - Archivo de imagen
-     * @param filter - Filtro a usar
-     * @param kernelSize - Tamaño del kernel (opcional)
-     */
-    compare(
-        imageFile: File,
-        filter: 'emboss' | 'blur' | 'laplace' | 'gaussian' | 'sticker' | 'depth_of_field_duotone',
-        kernelSize?: number
-    ): Observable<CompareResponse> {
-        const formData = new FormData();
-        formData.append('image', imageFile);
-        formData.append('filter', filter);
-
-        if (kernelSize) {
-            formData.append('kernel_size', kernelSize.toString());
-        }
-
-        return this.http.post<CompareResponse>(`${this.apiUrl}/process/compare`, formData);
-    }
+    
 
     // ==================== HELPERS ====================
 
@@ -219,4 +156,16 @@ export class PyCudaService {
     blobToImageUrl(blob: Blob): string {
         return window.URL.createObjectURL(blob);
     }
+
+    // Decodificar base64 a bytes
+    base64ToBytes(base64: string): Uint8Array {
+        const binaryString = window.atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes;
+    }
+
 }

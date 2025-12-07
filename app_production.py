@@ -246,9 +246,6 @@ def process_gpu():
             process_gpu_args['footer_img_path'] = footer_path
 
         if filter_name in ['depth_of_field', 'depth_of_field_duotone']:
-            # Añadir coordenadas de ROI (Región de Interés)
-            
-            # Nota: Si el usuario no envía valores, usamos el default (que es 0)
             # El filtro se encarga de calcular el 50% central si todos son 0.
             roi_x_start = int(request.form.get('roi_x_start', filter_instance.get_parameters()['roi_x_start']['default']))
             roi_y_start = int(request.form.get('roi_y_start', filter_instance.get_parameters()['roi_y_start']['default']))
@@ -284,8 +281,6 @@ def process_gpu():
             return send_file(
                 img_buffer,
                 mimetype='image/png',
-                as_attachment=True,
-                download_name=f'{filter_name}_gpu_{kernel_size}x{kernel_size}.png'
             )
 
     except Exception as e:
