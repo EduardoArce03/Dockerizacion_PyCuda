@@ -205,8 +205,7 @@ def process_gpu():
             C = 1
 
         # 4. Obtener kernel_size (Seguro)
-        kernel_size = int(request.form.get('kernel_size',
-                                     filter_instance.get_parameters()['kernel_size']['default']))
+        kernel_size = 7
         
         # 5. Generar kernel (Dummy para StickerFilter, Real para Convolución/Duotono)
         kernel = filter_instance.generate_kernel(kernel_size)
@@ -269,19 +268,13 @@ def process_gpu():
             "processing_time_ms": round(gpu_time, 3)
         }
         
-        return_base64 = request.form.get('return_base64', 'false').lower() == 'true'
+        img_buffer = array_to_image_bytes(output)
+        img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
 
-        if return_base64:
-            img_buffer = array_to_image_bytes(output)
-            img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
-            result["image_base64"] = img_base64
-            return jsonify(result)
-        else:
-            img_buffer = array_to_image_bytes(output)
-            return send_file(
-                img_buffer,
-                mimetype='image/png',
-            )
+        return jsonify({
+            "image_base64": img_base64
+        })
+
 
     except Exception as e:
         return jsonify({
